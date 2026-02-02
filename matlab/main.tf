@@ -10,56 +10,7 @@ terraform {
   }
 }
 
-data "coder_parameter" "server" {
-  name         = "server"
-  display_name = "Server"
-  icon         = "/icon/container.svg"
-  description  = "Choose server"
-  default      = "ssh://ctar@ctar401"
-  type         = "string"
-  mutable      = false
-  order        = 1
-  option {
-    name        = "ctar401"
-    description = "CTAR 401"
-    value       = "ssh://ctar@ctar401"
-    icon        = "/icon/container.svg"
-  }
-  option {
-    name        = "ctar402"
-    description = "CTAR 402"
-    value       = "ssh://ctar@ctar402"
-    icon        = "/icon/container.svg"
-  }
-  option {
-    name        = "ctar403"
-    description = "CTAR 403"
-    value       = "ssh://ctar@ctar403"
-    icon        = "/icon/container.svg"
-  }
-  option {
-    name        = "ctar404"
-    description = "CTAR 404"
-    value       = "ssh://ctar@ctar404"
-    icon        = "/icon/container.svg"
-  }
-  option {
-    name        = "ctar405"
-    description = "CTAR 405"
-    value       = "ssh://ctar@ctar405"
-    icon        = "/icon/container.svg"
-  }
-}
-
-
-provider "docker" {
-  host = data.coder_parameter.server.value
-  ssh_opts = [
-    "-i", "/home/coder/.ssh/id_bilkent_ctar_servers",
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null"
-  ]
-}
+provider "docker" {}
 
 provider "coder" {}
 
@@ -68,20 +19,11 @@ data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
 module "filebrowser" {
-  source   = "registry.coder.com/modules/filebrowser/coder"
-  version  = "1.0.8"
-  agent_id = coder_agent.main.id
-  folder   = "/home/matlab/Documents/MATLAB"
-}
-
-resource "coder_app" "matlab_browser" {
-  agent_id     = coder_agent.main.id
-  display_name = "Matlab Browser"
-  slug         = "matlab"
-  icon         = "/icon/matlab.svg"
-  url          = "http://localhost:8888"
-  subdomain    = true
-  share        = "owner"
+  source    = "registry.coder.com/coder/filebrowser/coder"
+  version   = "1.1.3"
+  agent_id  = coder_agent.main.id
+  folder    = "/home/matlab/Documents/MATLAB"
+  subdomain = false
 }
 
 resource "coder_app" "matlab_desktop" {
@@ -90,7 +32,7 @@ resource "coder_app" "matlab_desktop" {
   slug         = "desktop"
   icon         = "/icon/matlab.svg"
   url          = "http://localhost:6080"
-  subdomain    = true
+  subdomain    = false
   share        = "owner"
 }
 
@@ -100,12 +42,14 @@ resource "coder_agent" "main" {
   startup_script = <<EOT
     #!/bin/bash
     set -euo pipefail
-    # start Matlab browser
-    /bin/run.sh -browser >/dev/null 2>&1 &
-    echo "Starting Matlab Browser"
-    # start desktop
-    /bin/run.sh -vnc >/dev/null 2>&1 &
-    echo "Starting Matlab Desktop"
+
+    # Start VNC server
+    vncserver :1 -geometry 1920x1200 -depth 24 -localhost no >/dev/null 2>&1 &
+    sleep 2
+
+    # Start websockify with noVNC (pre-patched in image for subpath proxy support)
+    /opt/noVNC/utils/launch.sh --vnc localhost:5901 >/dev/null 2>&1 &
+    echo "Starting MATLAB Desktop"
   EOT
 
   display_apps {
@@ -222,14 +166,5 @@ resource "docker_container" "workspace" {
   labels {
     label = "coder.workspace_name"
     value = data.coder_workspace.me.name
-  }
-}
-
-resource "coder_metadata" "workspace" {
-  count       = data.coder_workspace.me.start_count
-  resource_id = docker_container.workspace[count.index].id
-  item {
-    key   = "Server Name"
-    value = data.coder_parameter.server.option[index(data.coder_parameter.server.option.*.value, data.coder_parameter.server.value)].description
   }
 }
